@@ -3,6 +3,11 @@ library(tidyverse)
 library(biomaRt)
 library(ggrepel)
 library(ComplexHeatmap)
+library(grid)
+library(GSVA)
+library(ggpubr)
+library(survival)
+library(survminer)
 
 TARGET_NBL_htseq_counts <- read.delim("TARGET-NBL.htseq_counts.tsv", header=TRUE)
 
@@ -111,7 +116,7 @@ final_version <- fit2$table %>%
 
 
 # filtering for candidate genes.
-candidate_genes_ALT <- final_version[c(final_version$fdr <= 0.05 & final_version$logFC >= 1),]
+candidate_genes_ALT <- final_version[c(final_version$fdr <= 0.02 & final_version$logFC >= 0.9),]
 candidate_genes_ALT <- candidate_genes_ALT %>%
   filter(hgnc_symbol != "" & !is.na(hgnc_symbol))
 
@@ -193,8 +198,9 @@ Heatmap(dge_TMM3_scaled_ordered,
                                            show_column_dend = FALSE,
                                            show_row_dend = FALSE,
                                            column_split = metadata_filtered_TMM$TMM,
-                                           row_split = merged_candidates1$gene_status
-                                
+                                           row_split = merged_candidates1$gene_status,
+        row_order = rownames(dge_TMM3_scaled_ordered),
+        column_order = colnames(dge_TMM3_scaled_ordered)
 
 )
 
@@ -219,7 +225,7 @@ for (i in 1:nrow(merged_candidates)) {
   gene_symbol <- merged_candidates$hgnc_symbol[i]
   
   # Extracting the expression values for this gene, keeping it as a matrix
-  gene_expression <- dge_TMM3_heatmap$counts[rownames(dge_TMM3_heatmap) == gene_id, , drop = FALSE]
+  gene_expression <- dge_TMM3$counts[rownames(dge_TMM3) == gene_id, , drop = FALSE]
   
   # Creating ALT and Telomerase group
   alt_group <- gene_expression[, metadata_filtered_TMM$TMM == "ALT", drop = FALSE]
@@ -245,5 +251,230 @@ t_test_results$fdr_t_test <- p.adjust(all_p_values, method = "BH")
 
 # Joining the merged candidate and t-test result table.
 merged_candidate_t <- full_join(merged_candidates, t_test_results, by = "hgnc_symbol")
+
+
+
+# Running GSVA & ssGSEA.
+
+gene_set_list <- list(candidate_genes_ALT$ensembl_gene_id)
+
+gsvapar <- gsvaParam(dge_TMM3_scaled_ordered, gene_set_list, maxDiff= TRUE)
+gsva_result <- gsva(gsvapar)
+
+gsvapar_ssgsea <- ssgseaParam(dge_TMM3_scaled_ordered, 
+                            gene_set_list)
+ssGSEA_result <- gsva(gsvapar_ssgsea)
+
+gsva_df <- as.data.frame(gsva_result)
+ssGSEA_df <- as.data.frame(ssGSEA_result)
+
+gsva_long <- pivot_longer(gsva_df, cols = everything(), names_to = "SampleID", values_to = "GSVA_Score")
+ssGSEA_long <- pivot_longer(ssGSEA_df, cols = everything(), names_to = "SampleID", values_to = "GSEA_Score")
+
+# to match the order as per the data, need to convert SampleID into factor.
+gsva_long$SampleID <- factor(gsva_long$SampleID, levels = colnames(dge_TMM3_scaled_ordered))
+ssGSEA_long$SampleID <- factor(ssGSEA_long$SampleID, levels = colnames(dge_TMM3_scaled_ordered))
+
+gsva_long$Color <- ifelse(gsva_long$GSVA_Score > 0, "Positive", "Negative")
+ssGSEA_long$Color <- ifelse(ssGSEA_long$GSEA_Score > 0, "Positive", "Negative")
+
+# Creating bar plot for ssGSEA.
+ssgsea_annotation <- anno_barplot(
+  ssGSEA_long$GSEA_Score, 
+  gp = gpar(fill = ifelse(ssGSEA_long$Color == "Positive", "blue", "red")),
+  border = FALSE, 
+  axis_param = list(at = c(-1, 0, 1), labels = c("-1", "0", "1"))
+)
+
+# Creating bar plot for GSVA.
+gsva_annotation <- anno_barplot(
+  gsva_long$GSVA_Score, 
+  gp = gpar(fill = ifelse(gsva_long$Color == "Positive", "blue", "red")),
+  border = FALSE,
+  axis_param = list(at = c(-1, 0, 1), labels = c("-1", "0", "1"))
+)
+
+# Combining the annotations.
+complex_annotation <- HeatmapAnnotation(
+  ssGSEA = ssgsea_annotation,
+  GSVA = gsva_annotation,
+  Condition = anno_simple(metadata_filtered_TMM$TMM, col = phenotype_colors),
+  which = "column"
+)
+
+# Final heatmap + barPlots.
+h1 <- Heatmap(
+  dge_TMM3_scaled_ordered,
+  row_labels = merged_candidates1$hgnc_symbol,
+  row_names_gp = gpar(fontsize = 4, col = row_label_colors),
+  column_names_gp = gpar(fontsize = 0.5),
+  top_annotation = complex_annotation,
+  show_column_dend = FALSE,
+  show_row_dend = FALSE,
+  column_split = metadata_filtered_TMM$TMM,
+  row_split = merged_candidates1$gene_status,
+  row_order = rownames(dge_TMM3_scaled_ordered),
+  column_order = colnames(dge_TMM3_scaled_ordered)
+)
+
+draw(h1)
+
+
+
+
+# boxplot - GSVA.
+ALT_gsva_df <- gsva_df[, colnames(gsva_df) %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$TMM == "ALT"]]
+ALT_gsva_df <- pivot_longer(ALT_gsva_df, cols = everything(), names_to = "SampleID", values_to = "GSVA_Score")
+ALT_gsva_df <- ALT_gsva_df %>%
+  mutate(Phenotype = "ALT")
+
+Tel_gsva_df <- gsva_df[, colnames(gsva_df) %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$TMM == "Telomerase"]]
+Tel_gsva_df <- pivot_longer(Tel_gsva_df, cols = everything(), names_to = "SampleID", values_to = "GSVA_Score")
+Tel_gsva_df <- Tel_gsva_df %>%
+  mutate(Phenotype = "Telomerase")
+
+combined_df <- rbind(ALT_gsva_df, Tel_gsva_df)
+
+ggboxplot(combined_df, x = "Phenotype", y = "GSVA_Score", 
+          fill = "Phenotype") +
+  stat_compare_means(method = "t.test") +
+  labs(title = "GSVA Score Comparison")
+
+# boxplot - ssGSEA.
+ALT_gsea_df <- ssGSEA_df[, colnames(ssGSEA_df) %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$TMM == "ALT"]]
+ALT_gsea_df <- pivot_longer(ALT_gsea_df, cols = everything(), names_to = "SampleID", values_to = "GSEA_Score")
+ALT_gsea_df <- ALT_gsea_df %>%
+  mutate(Phenotype = "ALT")
+
+Tel_gsea_df <- ssGSEA_df[, colnames(ssGSEA_df) %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$TMM == "Telomerase"]]
+Tel_gsea_df <- pivot_longer(Tel_gsea_df, cols = everything(), names_to = "SampleID", values_to = "GSEA_Score")
+Tel_gsea_df <- Tel_gsea_df %>%
+  mutate(Phenotype = "Telomerase")
+
+combined_df2 <- rbind(ALT_gsea_df, Tel_gsea_df)
+
+ggboxplot(combined_df2, x = "Phenotype", y = "GSEA_Score", 
+          fill = "Phenotype") +
+  stat_compare_means(method = "t.test") +
+  labs(title = "ssGSEA Score Comparison")
+
+
+###########################
+
+# survival plot.
+
+# First, deleting the Telomerase samples with GSVA score > 0.
+combined_df <- combined_df[!(combined_df$GSVA_Score > 0 & combined_df$Phenotype == "Telomerase") & 
+           !(combined_df$GSVA_Score < 0 & combined_df$Phenotype == "ALT"), ]
+
+survival_metadata <- metadata_filtered_TMM[metadata_filtered_TMM$SampleID %in% combined_df$SampleID,]
+survival_metadata$Vital.Status <- ifelse(survival_metadata$Vital.Status == "Dead", 1, 0) # recoding event to 1 or 0.
+
+
+# computing survival curve -with overall survival time.
+fit <- survfit(Surv(Overall.Survival.Time.in.Days, Vital.Status) ~ TMM, data = survival_metadata)
+
+# plotting the graph.
+ggsurvplot(fit,
+           pval = TRUE,
+           conf.int = TRUE,
+           risk.table = TRUE,
+           risk.table.col = "strata",
+           linetype = "strata",
+           surv.median.line = "hv",
+           ncensor.plot = TRUE,
+           ggtheme = theme_bw(),
+           palette = c("#E7B800", "#2E9FDF"))
+
+
+## No_TMM is supposed to have high survival rate with significant p value. Checking...
+no_tmm_rows <- Neuroblastoma_Metadata[Neuroblastoma_Metadata$TMM_Case == "NO_TMM", ]
+survival_metadata2 <- rbind(no_tmm_rows, survival_metadata)
+survival_metadata2$Vital.Status <- ifelse(survival_metadata2$Vital.Status %in% c(1, 0), 
+                                         survival_metadata2$Vital.Status, 
+                                         ifelse(survival_metadata2$Vital.Status == "Dead", 1, 0))
+
+# computing survival curve -with overall survival time. (No_TMM vs TMM and ALT)
+survival_metadata2$Vital.Status <- as.numeric(survival_metadata2$Vital.Status)
+fit2 <- survfit(Surv(Overall.Survival.Time.in.Days, Vital.Status) ~ TMM_Case, data = survival_metadata2)
+
+# plotting the graph.
+ggsurvplot(fit2,
+           pval = TRUE,
+           conf.int = TRUE,
+           risk.table = TRUE,
+           risk.table.col = "strata",
+           linetype = "strata",
+           surv.median.line = "hv",
+           ncensor.plot = TRUE,
+           ggtheme = theme_bw(),
+           palette = c("#E7B800", "#2E9FDF"))
+
+# comparison of survival probability between different risk group.
+fit3 <- survfit(Surv(Overall.Survival.Time.in.Days, Vital.Status) ~ COG.Risk.Group, data = survival_metadata2)      
+
+# plotting the graph.
+ggsurvplot(fit3,
+           pval = TRUE,
+           conf.int = TRUE,
+           risk.table = TRUE,
+           risk.table.col = "strata",
+           linetype = "strata",
+           surv.median.line = "hv",
+           ncensor.plot = TRUE,
+           ggtheme = theme_bw())
+
+# comparing ALT signatures for different gender.
+gsea_male <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Gender == "Male"], ]
+gsea_male <- gsea_male %>%
+  mutate(Gender = "Male")
+
+
+gsea_female <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Gender == "Female"], ]
+gsea_female <- gsea_female %>%
+  mutate(Gender = "Female")
+
+gsea_gender <- rbind(gsea_male, gsea_female)
+
+ggboxplot(gsea_gender, x = "Gender", y = "GSEA_Score", 
+          fill = "Gender") +
+  stat_compare_means(method = "t.test") +
+  labs(title = "GSEA Score Comparison for different Genders in ALT samples")
+
+
+# comparing ALT signatures for different ploidy.
+gsea_hyperploid <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Ploidy == "Hyperdiploid (DI>1)"], ]
+gsea_hyperploid <- gsea_hyperploid %>%
+  mutate(Ploidy = "Hyperploid")
+
+gsea_diploid <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Ploidy == "Diploid (DI=1)"], ]
+gsea_diploid <- gsea_diploid %>%
+  mutate(Ploidy = "Diploid")
+
+gsea_ploidy <- rbind(gsea_hyperploid, gsea_diploid)
+
+ggboxplot(gsea_ploidy, x = "Ploidy", y = "GSEA_Score", 
+          fill = "Ploidy") +
+  stat_compare_means(method = "t.test") +
+  labs(title = "GSEA Score Comparison for different Ploidy States in ALT samples")
+
+
+# comparing ALT signatures for racial characteristics.
+gsea_white <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Race == "White"], ]
+gsea_white <- gsea_white %>%
+  mutate(Race = "White")
+
+gsea_black <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Race == "Black or African American"], ]
+gsea_black <- gsea_black %>%
+  mutate(Race = "Black")
+
+gsea_race <- rbind(gsea_white, gsea_black)
+
+ggboxplot(gsea_race, x = "Race", y = "GSEA_Score", 
+          fill = "Race") +
+  stat_compare_means(method = "t.test") +
+  labs(title = "GSEA Score Comparison for different Races in ALT samples")
+
+
 
 
