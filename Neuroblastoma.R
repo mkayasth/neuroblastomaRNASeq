@@ -120,6 +120,7 @@ candidate_genes_ALT <- final_version[c(final_version$fdr <= 0.02 & final_version
 candidate_genes_ALT <- candidate_genes_ALT %>%
   filter(hgnc_symbol != "" & !is.na(hgnc_symbol))
 
+# stringent filter for ALT.
 candidate_genes2_ALT <- final_version[c(final_version$fdr <= 0.01 & final_version$logFC >= 1.5),]
 
 
@@ -128,6 +129,7 @@ candidate_genes_Telomerase <- final_version[c(final_version$fdr <= 0.05 & final_
 candidate_genes_Telomerase <- candidate_genes_Telomerase %>%
   filter(hgnc_symbol != "" & !is.na(hgnc_symbol))
 
+# stringent filter.
 candidate_genes2_Telomerase <- final_version[c(final_version$fdr <= 0.01 & final_version$logFC <= -1.5),]
 
 merged_candidates <- rbind(candidate_genes_ALT, candidate_genes_Telomerase)
@@ -137,6 +139,7 @@ ALT_significant <- merged_candidates %>%
   arrange(desc(logFC)) %>%
   slice_head(n = 10)
 
+# TERT has highest p-value but is not top 10 in terms of fold change.
 Telomerase_significant <- merged_candidates %>%
   arrange(logFC) %>%
   slice_head(n=10)
@@ -340,6 +343,9 @@ ggboxplot(combined_df, x = "Phenotype", y = "GSVA_Score",
   stat_compare_means(method = "t.test") +
   labs(title = "GSVA Score Comparison")
 
+# p-value is significant in t-test for GSVA Score comparison for ALT signature genes.
+
+
 # boxplot - ssGSEA.
 ALT_gsea_df <- ssGSEA_df[, colnames(ssGSEA_df) %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$TMM == "ALT"]]
 ALT_gsea_df <- pivot_longer(ALT_gsea_df, cols = everything(), names_to = "SampleID", values_to = "GSEA_Score")
@@ -358,12 +364,13 @@ ggboxplot(combined_df2, x = "Phenotype", y = "GSEA_Score",
   stat_compare_means(method = "t.test") +
   labs(title = "ssGSEA Score Comparison")
 
+# p-value is significant in t-test for ssGSEA Score comparison for ALT signature genes.
 
 ###########################
 
 # survival plot.
 
-# First, deleting the Telomerase samples with GSVA score > 0.
+# First, deleting the Telomerase samples with GSVA score > 0 (cutoff score decided for ALT vs Telomerase = 0)
 combined_df <- combined_df[!(combined_df$GSVA_Score > 0 & combined_df$Phenotype == "Telomerase") & 
            !(combined_df$GSVA_Score < 0 & combined_df$Phenotype == "ALT"), ]
 
@@ -386,6 +393,7 @@ ggsurvplot(fit,
            ggtheme = theme_bw(),
            palette = c("#E7B800", "#2E9FDF"))
 
+# survival probability is expected to be lower in ALT samples. Observed, but not significant (p=0.34).
 
 ## No_TMM is supposed to have high survival rate with significant p value. Checking...
 no_tmm_rows <- Neuroblastoma_Metadata[Neuroblastoma_Metadata$TMM_Case == "NO_TMM", ]
@@ -410,6 +418,8 @@ ggsurvplot(fit2,
            ggtheme = theme_bw(),
            palette = c("#E7B800", "#2E9FDF"))
 
+# p-value significant: No_TMM have higher survival probability over time.
+
 # comparison of survival probability between different risk group.
 fit3 <- survfit(Surv(Overall.Survival.Time.in.Days, Vital.Status) ~ COG.Risk.Group, data = survival_metadata2)      
 
@@ -423,6 +433,8 @@ ggsurvplot(fit3,
            surv.median.line = "hv",
            ncensor.plot = TRUE,
            ggtheme = theme_bw())
+
+# Oberved: Low risk have higher survival probability with significant p-value.
 
 # comparing ALT signatures for different gender.
 gsea_male <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Gender == "Male"], ]
@@ -441,6 +453,7 @@ ggboxplot(gsea_gender, x = "Gender", y = "GSEA_Score",
   stat_compare_means(method = "t.test") +
   labs(title = "GSEA Score Comparison for different Genders in ALT samples")
 
+# ALT signature GSEA score for male vs female: higher in female but not significant at all.
 
 # comparing ALT signatures for different ploidy.
 gsea_hyperploid <- ALT_gsea_df[ALT_gsea_df$SampleID %in% metadata_filtered_TMM$SampleID[metadata_filtered_TMM$Ploidy == "Hyperdiploid (DI>1)"], ]
@@ -457,6 +470,8 @@ ggboxplot(gsea_ploidy, x = "Ploidy", y = "GSEA_Score",
           fill = "Ploidy") +
   stat_compare_means(method = "t.test") +
   labs(title = "GSEA Score Comparison for different Ploidy States in ALT samples")
+
+# ALT signature GSEA Score for Hyperploid vs. Ploid: higher in Hyperploid, but not significant.
 
 
 # comparing ALT signatures for racial characteristics.
@@ -475,6 +490,6 @@ ggboxplot(gsea_race, x = "Race", y = "GSEA_Score",
   stat_compare_means(method = "t.test") +
   labs(title = "GSEA Score Comparison for different Races in ALT samples")
 
-
+# ALT signature GSEA Score for Race; not significant.
 
 
