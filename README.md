@@ -2,5 +2,5 @@ Neuroblastoma is a pediatric cancer that occurs in neuroblasts. It is the most c
 
 This project identifies signature genes for the ALT phenotype using single-cell RNA seq expression (counts) data. It also compares the survival probability of different phenotypes.
 
-Link to the expression data: <a href = "https://xenabrowser.net/datapages/?dataset=TARGET_neuroblastoma%2Frma.Target190.Probeset.Full&host=https%3A%2F%2Fucscpublic.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443
+Link to the expression data: <a href = "https://xenabrowser.net/datapages/?dataset=TARGET-NBL.star_counts.tsv&host=https%3A%2F%2Fgdc.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443
 "> Neuroblastoma Xenahub Dataset </a>
