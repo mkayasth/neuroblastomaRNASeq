@@ -14,7 +14,7 @@ TARGET_NBL_htseq_counts <- read.delim("TARGET-NBL.htseq_counts.tsv", header=TRUE
 # removing Ensembl ID data after . in the name
 TARGET_NBL_htseq_counts$Ensembl_ID <- gsub("\\..*", "", TARGET_NBL_htseq_counts$Ensembl_ID)
 
-mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", version=112)
+mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl", version=110)
 
 # Retrieving the Ensembl gene IDs and gene biotype (protein coding)
 protein_coding_genes <- getBM(attributes = c("ensembl_gene_id", "gene_biotype"),
